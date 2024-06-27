@@ -1,0 +1,47 @@
+#include "GPUField.cuh"
+#include <cstdint>
+
+template<typename T>
+GPUField<T>::GPUField(unsigned int size, T initialValue) {
+    m_size = size;
+    m_hostData = new T[size];
+    // zero out m_hostData
+    for (int i=0; i<size; i++) {
+        m_hostData[i] = initialValue;
+    }
+    /*
+    for (int i=0; i<size; i++) {
+        m_hostData[i] = i % 255;
+    }
+    */
+    cudaMalloc(&m_deviceData, size * sizeof(T));
+}
+
+template<typename T>
+GPUField<T>::~GPUField() {
+    delete[] m_hostData;
+    cudaFree(m_deviceData);
+}
+
+template<typename T>
+void GPUField<T>::to_device() {
+    cudaMemcpy(m_deviceData, m_hostData, m_size * sizeof(T), cudaMemcpyHostToDevice);
+}
+
+template<typename T>
+void GPUField<T>::from_device() {
+    cudaMemcpy(m_hostData, m_deviceData, m_size * sizeof(T), cudaMemcpyDeviceToHost);
+}
+
+template<typename T>
+void GPUField<T>::from_device(T *hostData) {
+    cudaMemcpy(hostData, m_deviceData, m_size * sizeof(T), cudaMemcpyDeviceToHost);
+}
+
+template<typename T>
+unsigned int GPUField<T>::get_byte_size() {
+    return m_size * sizeof(T);
+}
+
+template class GPUField<float>;
+template class GPUField<uint8_t>;

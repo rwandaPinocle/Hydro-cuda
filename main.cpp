@@ -3,18 +3,19 @@
 #include <SDL.h>
 #include "SimulationWindow.h"
 
-#define SCREEN_WIDTH 2000
-#define SCREEN_HEIGHT 1000
+#define SCREEN_WIDTH 723
+#define SCREEN_HEIGHT 1222
 
 int main(int argc, char* args[])
 {
-    SimulationWindow* window = new SimulationWindow("Hydro", SCREEN_WIDTH, SCREEN_HEIGHT);   
+    SimulationWindow* window = new SimulationWindow("Hydro", SCREEN_WIDTH, SCREEN_HEIGHT, true);   
     window->init();
     while(window->running())
     {
         window->handleEvents();
         window->update();
         window->render();
+        //window->stop();
     }
 
     window->clean();
