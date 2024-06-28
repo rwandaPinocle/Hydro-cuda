@@ -1,2 +1,5 @@
 build:
-	nvcc -I/usr/include/SDL2 main.cpp SimulationWindow.cpp -lSDL2 -o main
+	nvcc -std=c++17 -I/usr/include/SDL2 main.cpp SimulationWindow.cpp Simulation.cu GPUField.cu -lSDL2 -o main
+
+build-debug:
+	nvcc -g -std=c++17 -I/usr/include/SDL2 main.cpp SimulationWindow.cpp Simulation.cu GPUField.cu -lSDL2 -o main

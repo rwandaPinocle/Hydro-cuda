@@ -3,8 +3,8 @@
 #include <SDL.h>
 #include "SimulationWindow.h"
 
-#define SCREEN_WIDTH 723
-#define SCREEN_HEIGHT 1222
+#define SCREEN_WIDTH 150
+#define SCREEN_HEIGHT 100
 
 int main(int argc, char* args[])
 {

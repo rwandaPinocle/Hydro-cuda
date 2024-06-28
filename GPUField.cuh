@@ -13,6 +13,8 @@ class GPUField {
 
         unsigned int get_byte_size();
 
+        void set_host_data(T val);
+
         T *m_hostData;
         T *m_deviceData;
         unsigned int m_size;

@@ -2,6 +2,74 @@
 #include <iostream>
 #include <iomanip>
 
+__global__ void d_advect_vel(
+    float *uField,
+    float *vField,
+    float *uNext,
+    float *vNext,
+    uint8_t *obstacles,
+    unsigned int w,
+    unsigned int h,
+    float deltaT,
+    float metersPerCell)
+{
+    int stride = gridDim.x * blockDim.x;
+    int max_index = w * h;
+
+    for (int i = (blockDim.x * blockIdx.x) + threadIdx.x; i < max_index; i+=stride) {
+        int x = i % w;
+        int y = i / w;
+
+        // Find the velocities at x, y
+        float u = (uField[(y * (w + 1)) + (x    )] + uField[((y    ) * (w + 1)) + (x + 1)]) / 2.0;
+        float v = (vField[(y * (w    )) + (x    )] + vField[((y + 1) * (w    )) + (x    )]) / 2.0;
+
+        // Add velocity to left side of the screen
+        if ((x > 0) && (x < 2) && (y < h) && (y > 0)) {
+            uField[i] = 0.02;
+        }
+
+        // Calculate the coordinates of the sample location
+        float newX = max(min(x - (u * deltaT / metersPerCell) - 0.5, (float) w), 0.0f);
+        float newY = max(min(y - (v * deltaT / metersPerCell), (float) h), 0.0f);
+
+        float xFrac = newX - (long)newX;
+        float yFrac = newY - (long)newY;
+        
+        // Sample uField
+        float w11 = (1 - xFrac) * (1 - yFrac);
+        float w12 = (1 - xFrac) * (    yFrac);
+        float w21 = (    xFrac) * (1 - yFrac);
+        float w22 = (    xFrac) * (    yFrac);
+
+        uNext[i] = (
+            w11 * uField[(unsigned int)(((newY    ) * w) + (newX    ))] +
+            w12 * uField[(unsigned int)(((newY + 1) * w) + (newX    ))] +
+            w21 * uField[(unsigned int)(((newY    ) * w) + (newX + 1))] +
+            w22 * uField[(unsigned int)(((newY + 1) * w) + (newX + 1))] 
+        );
+
+        // Sample vField
+        newX = max(min(x - (u * deltaT / metersPerCell), (float) w), 0.0f);
+        newY = max(min(y - (v * deltaT / metersPerCell) - 0.5, (float) h), 0.0f);
+
+        xFrac = newX - (long)newX;
+        yFrac = newY - (long)newY;
+
+        w11 = (1 - xFrac) * (1 - yFrac);
+        w12 = (1 - xFrac) * (    yFrac);
+        w21 = (    xFrac) * (1 - yFrac);
+        w22 = (    xFrac) * (    yFrac);
+
+        vNext[i] = (
+            w11 * vField[(unsigned int)(((newY    ) * w) + (newX    ))] +
+            w12 * vField[(unsigned int)(((newY + 1) * w) + (newX    ))] +
+            w21 * vField[(unsigned int)(((newY    ) * w) + (newX + 1))] +
+            w22 * vField[(unsigned int)(((newY + 1) * w) + (newX + 1))] 
+        );
+    }
+}
+
 __global__ void d_advect_smoke(
     float *smoke,
     float *smokeNext,
@@ -20,34 +88,22 @@ __global__ void d_advect_smoke(
         int x = i % w;
         int y = i / w;
 
-
         // Advect smoke
         // Find the velocities at x, y
         float u = (uField[(y * (w + 1)) + (x    )] + uField[((y    ) * (w + 1)) + (x + 1)]) / 2.0;
         float v = (vField[(y * (w    )) + (x    )] + vField[((y + 1) * (w    )) + (x    )]) / 2.0;
 
         // Add smoke to left side of the screen
-        if ((x < 1) && (y % 50 < 50)) {
+        if ((x > 0) && (x < 2) && (y < h) && (y > 0)) {
             smoke[i] = 1.0;
         }
 
-
-        //if ((u == 0.0) && (v == 0.0)) {
-        //    smokeNext[i] = smoke[i];
-        //    continue;
-        //}
-
         // Calculate the coordinates of the sample location
-        float newX = max(min(x - ((u / metersPerCell) * deltaT), (float) w), 0.0);
-        float newY = max(min(y - ((v / metersPerCell) * deltaT), (float) h), 0.0);
-        //printf("X: %i, Y: %i, NewX: %f, NewY: %f, u: %f, v: %f\n", x, y, newX, newY, uField[i], vField[i]);
+        float newX = max(min(x - (u * deltaT / metersPerCell), (float) w), 0.0f);
+        float newY = max(min(y - (v * deltaT / metersPerCell), (float) h), 0.0f);
 
-        //float uIdxLow = std::floor(newX - 0.5);
-        //float uIdxHigh = std::ceil(newX - 0.5);
-
-        //float vIdxLow = std::floor();
-        float xFrac = x - (long)x;
-        float yFrac = y - (long)y;
+        float xFrac = newX - (long)newX;
+        float yFrac = newY - (long)newY;
         
         // Sample the smoke at location - delta_t * velocity
         float w11 = (1 - xFrac) * (1 - yFrac);
@@ -55,14 +111,12 @@ __global__ void d_advect_smoke(
         float w21 = (    xFrac) * (1 - yFrac);
         float w22 = (    xFrac) * (    yFrac);
 
-
         smokeNext[i] = (
             w11 * smoke[(unsigned int)(((newY    ) * w) + (newX    ))] +
             w12 * smoke[(unsigned int)(((newY + 1) * w) + (newX    ))] +
             w21 * smoke[(unsigned int)(((newY    ) * w) + (newX + 1))] +
             w22 * smoke[(unsigned int)(((newY + 1) * w) + (newX + 1))] 
         );
-        //printf("Smoke: %f\n", smokeNext[i]);
     }
 }
 
@@ -86,8 +140,8 @@ __global__ void d_render_texture(uint8_t *pixels, float *smoke, float *uField, f
 Simulation::Simulation(unsigned int width, unsigned int height, float dt) {
     m_width = width;
     m_height = height;
-    m_u =         new GPUField<float>(  (width + 1) *  height     , -0.001);
-    m_v =         new GPUField<float>(   width      * (height + 1), 0.001);
+    m_u =         new GPUField<float>(  (width + 1) *  height     , 0.001);
+    m_v =         new GPUField<float>(   width      * (height + 1), 0.00);
     m_uNext =     new GPUField<float>(  (width + 1) *  height     );
     m_vNext =     new GPUField<float>(   width      * (height + 1));
     m_smoke =     new GPUField<float>(   width      *  height     );
@@ -133,9 +187,11 @@ void Simulation::step() {
     //project();
     //advect_velocity();
 
+    //m_u->m_hostData[0] = 0.11;
+    //m_u->m_hostData[1] = 0.22;
     this->to_device();   
-    printf("u: %f\n", m_u->m_hostData[1]);
-    
+    //printf("u: %f\n", m_u->m_hostData[1]);
+
     d_advect_smoke<<<1000, 256>>>(
         m_smoke->m_deviceData,
         m_smokeNext->m_deviceData,
@@ -146,19 +202,36 @@ void Simulation::step() {
         m_height,
         0.0001,
         0.0001);
-    
+
+    d_advect_vel<<<1000, 256>>>(
+        m_u->m_deviceData,
+        m_v->m_deviceData,
+        m_uNext->m_deviceData,
+        m_vNext->m_deviceData,
+        m_obstacles->m_deviceData,
+        m_width,
+        m_height,
+        0.0001,
+        0.0001);
+
     this->from_device();
 
     cudaError_t error = cudaGetLastError();
     if (error != cudaSuccess) {
         printf("CUDA error: %s\n", cudaGetErrorString(error));
     }
-    //printf("Smoke hex: %x\n", *reinterpret_cast<unsigned int*>(&m_smoke->m_hostData[m_smoke->m_size - 1]));
-    printf("Smoke: %f\n", m_smoke->m_hostData[1]);
-    printf("SmokeNext: %f\n", m_smokeNext->m_hostData[1]);
-    //printf("Smoke cell size: %i\n", (int) sizeof(float));
-    //printf("Smoke size: %i\n", m_smoke->get_byte_size());
-    auto temp = m_smoke;
+
+    GPUField<float> *temp;
+
+    temp = m_u;
+    m_u = m_uNext;
+    m_uNext = temp;
+
+    temp = m_v;
+    m_v = m_vNext;
+    m_vNext = temp;
+    
+    temp = m_smoke;
     m_smoke = m_smokeNext;
     m_smokeNext = temp;
 }

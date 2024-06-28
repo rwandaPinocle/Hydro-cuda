@@ -43,5 +43,13 @@ unsigned int GPUField<T>::get_byte_size() {
     return m_size * sizeof(T);
 }
 
+template<typename T>
+void GPUField<T>::set_host_data(T val) {
+    for (int i=0; i<m_size; i++) {
+        m_hostData[i] = val;
+    }
+}
+
 template class GPUField<float>;
 template class GPUField<uint8_t>;
+template class GPUField<bool>;
