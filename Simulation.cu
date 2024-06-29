@@ -2,6 +2,29 @@
 #include <iostream>
 #include <iomanip>
 
+
+__device__ float sampleField(float *f, float x, float y, unsigned int w, unsigned int h, float xOffset, float yOffset) {
+    // Calculate the coordinates of the sample location
+    float newX = max(min(x - xOffset, (float) w), 0.0f);
+    float newY = max(min(y - yOffset, (float) h), 0.0f);
+
+    float xFrac = newX - (long)newX;
+    float yFrac = newY - (long)newY;
+    
+    // Sample the smoke with bilinear interpolation
+    float w11 = (1 - xFrac) * (1 - yFrac);
+    float w12 = (1 - xFrac) * (    yFrac);
+    float w21 = (    xFrac) * (1 - yFrac);
+    float w22 = (    xFrac) * (    yFrac);
+
+    return (
+        w11 * f[(unsigned int)(((newY    ) * w) + (newX    ))] +
+        w12 * f[(unsigned int)(((newY + 1) * w) + (newX    ))] +
+        w21 * f[(unsigned int)(((newY    ) * w) + (newX + 1))] +
+        w22 * f[(unsigned int)(((newY + 1) * w) + (newX + 1))] 
+    );
+}
+
 __global__ void d_advect_vel(
     float *uField,
     float *vField,
@@ -17,21 +40,33 @@ __global__ void d_advect_vel(
     int max_index = w * h;
 
     for (int i = (blockDim.x * blockIdx.x) + threadIdx.x; i < max_index; i+=stride) {
-        int x = i % w;
-        int y = i / w;
-
-        // Find the velocities at x, y
-        float u = (uField[(y * (w + 1)) + (x    )] + uField[((y    ) * (w + 1)) + (x + 1)]) / 2.0;
-        float v = (vField[(y * (w    )) + (x    )] + vField[((y + 1) * (w    )) + (x    )]) / 2.0;
+        int x = i % (w + 1);
+        int y = i / (w + 1);
+        
+        if (x == 0 || y == 0) {
+            continue;
+        }
 
         // Add velocity to left side of the screen
-        if ((x > 0) && (x < 2) && (y < h) && (y > 0)) {
+        if ((x > -1) && (x < 2) && (y < (h + 1)) && (y > -1)) {
             uField[i] = 0.02;
         }
 
+        float u, v, newX, newY;
+
+        // Advect u 
+        u = uField[(x    ) + ((y    ) * (w + 1))];
+        v = (
+            vField[(x    ) + ((y    ) * (w    ))] +
+            vField[(x    ) + ((y + 1) * (w    ))] + 
+            vField[(x + 1) + ((y    ) * (w    ))] +
+            vField[(x + 1) + ((y + 1) * (w    ))]
+        ) / 4.0f;
+
+
         // Calculate the coordinates of the sample location
-        float newX = max(min(x - (u * deltaT / metersPerCell) - 0.5, (float) w), 0.0f);
-        float newY = max(min(y - (v * deltaT / metersPerCell), (float) h), 0.0f);
+        newX = max(min(x - (u * deltaT / metersPerCell), (float) w), 0.0f);
+        newY = max(min(y - (v * deltaT / metersPerCell), (float) h), 0.0f);
 
         float xFrac = newX - (long)newX;
         float yFrac = newY - (long)newY;
@@ -42,31 +77,32 @@ __global__ void d_advect_vel(
         float w21 = (    xFrac) * (1 - yFrac);
         float w22 = (    xFrac) * (    yFrac);
 
-        uNext[i] = (
-            w11 * uField[(unsigned int)(((newY    ) * w) + (newX    ))] +
-            w12 * uField[(unsigned int)(((newY + 1) * w) + (newX    ))] +
-            w21 * uField[(unsigned int)(((newY    ) * w) + (newX + 1))] +
-            w22 * uField[(unsigned int)(((newY + 1) * w) + (newX + 1))] 
+        uNext[x + (y * (w + 1))] = (
+            w11 * uField[(unsigned int)(((newY    ) * (w + 1)) + (newX    ))] +
+            w12 * uField[(unsigned int)(((newY + 1) * (w + 1)) + (newX    ))] +
+            w21 * uField[(unsigned int)(((newY    ) * (w + 1)) + (newX + 1))] +
+            w22 * uField[(unsigned int)(((newY + 1) * (w + 1)) + (newX + 1))] 
         );
+        //uNext[i] = sampleField(uField, newX, newY, w, h, 0.0, 0.0);
 
         // Sample vField
-        newX = max(min(x - (u * deltaT / metersPerCell), (float) w), 0.0f);
-        newY = max(min(y - (v * deltaT / metersPerCell) - 0.5, (float) h), 0.0f);
+        //newX = max(min(x - (u * deltaT / metersPerCell), (float) w), 0.0f);
+        //newY = max(min(y - (v * deltaT / metersPerCell) - 0.5, (float) h), 0.0f);
 
-        xFrac = newX - (long)newX;
-        yFrac = newY - (long)newY;
+        //xFrac = newX - (long)newX;
+        //yFrac = newY - (long)newY;
 
-        w11 = (1 - xFrac) * (1 - yFrac);
-        w12 = (1 - xFrac) * (    yFrac);
-        w21 = (    xFrac) * (1 - yFrac);
-        w22 = (    xFrac) * (    yFrac);
+        //w11 = (1 - xFrac) * (1 - yFrac);
+        //w12 = (1 - xFrac) * (    yFrac);
+        //w21 = (    xFrac) * (1 - yFrac);
+        //w22 = (    xFrac) * (    yFrac);
 
-        vNext[i] = (
-            w11 * vField[(unsigned int)(((newY    ) * w) + (newX    ))] +
-            w12 * vField[(unsigned int)(((newY + 1) * w) + (newX    ))] +
-            w21 * vField[(unsigned int)(((newY    ) * w) + (newX + 1))] +
-            w22 * vField[(unsigned int)(((newY + 1) * w) + (newX + 1))] 
-        );
+        //vNext[i] = (
+        //    w11 * vField[(unsigned int)(((newY    ) * w) + (newX    ))] +
+        //    w12 * vField[(unsigned int)(((newY + 1) * w) + (newX    ))] +
+        //    w21 * vField[(unsigned int)(((newY    ) * w) + (newX + 1))] +
+        //    w22 * vField[(unsigned int)(((newY + 1) * w) + (newX + 1))] 
+        //);
     }
 }
 
@@ -90,11 +126,11 @@ __global__ void d_advect_smoke(
 
         // Advect smoke
         // Find the velocities at x, y
-        float u = (uField[(y * (w + 1)) + (x    )] + uField[((y    ) * (w + 1)) + (x + 1)]) / 2.0;
-        float v = (vField[(y * (w    )) + (x    )] + vField[((y + 1) * (w    )) + (x    )]) / 2.0;
+        float u = (uField[(x    ) + ((y    ) * (w + 1))] + uField[(x + 1) + ((y    ) * (w + 1))]) / 2.0;
+        float v = (vField[(x    ) + ((y    ) * (w    ))] + vField[(x    ) + ((y + 1) * (w    ))]) / 2.0;
 
         // Add smoke to left side of the screen
-        if ((x > 0) && (x < 2) && (y < h) && (y > 0)) {
+        if ((x > -1) && (x < 2) && (y < h) && (y > -1)) {
             smoke[i] = 1.0;
         }
 
@@ -102,21 +138,7 @@ __global__ void d_advect_smoke(
         float newX = max(min(x - (u * deltaT / metersPerCell), (float) w), 0.0f);
         float newY = max(min(y - (v * deltaT / metersPerCell), (float) h), 0.0f);
 
-        float xFrac = newX - (long)newX;
-        float yFrac = newY - (long)newY;
-        
-        // Sample the smoke at location - delta_t * velocity
-        float w11 = (1 - xFrac) * (1 - yFrac);
-        float w12 = (1 - xFrac) * (    yFrac);
-        float w21 = (    xFrac) * (1 - yFrac);
-        float w22 = (    xFrac) * (    yFrac);
-
-        smokeNext[i] = (
-            w11 * smoke[(unsigned int)(((newY    ) * w) + (newX    ))] +
-            w12 * smoke[(unsigned int)(((newY + 1) * w) + (newX    ))] +
-            w21 * smoke[(unsigned int)(((newY    ) * w) + (newX + 1))] +
-            w22 * smoke[(unsigned int)(((newY + 1) * w) + (newX + 1))] 
-        );
+        smokeNext[i] = sampleField(smoke, newX, newY, w, h, 0.0f, 0.0f);
     }
 }
 
@@ -140,7 +162,7 @@ __global__ void d_render_texture(uint8_t *pixels, float *smoke, float *uField, f
 Simulation::Simulation(unsigned int width, unsigned int height, float dt) {
     m_width = width;
     m_height = height;
-    m_u =         new GPUField<float>(  (width + 1) *  height     , 0.001);
+    m_u =         new GPUField<float>(  (width + 1) *  height     , 0.1);
     m_v =         new GPUField<float>(   width      * (height + 1), 0.00);
     m_uNext =     new GPUField<float>(  (width + 1) *  height     );
     m_vNext =     new GPUField<float>(   width      * (height + 1));
