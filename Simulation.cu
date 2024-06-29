@@ -37,18 +37,18 @@ __global__ void d_advect_vel(
     float metersPerCell)
 {
     int stride = gridDim.x * blockDim.x;
-    int max_index = w * h;
+    int max_index = (w+1) * (h+1);
 
     for (int i = (blockDim.x * blockIdx.x) + threadIdx.x; i < max_index; i+=stride) {
-        int x = i % (w + 1);
-        int y = i / (w + 1);
+        int x = (i % (w + 1));
+        int y = (i / (w + 1));
         
-        if (x == 0 || y == 0) {
-            continue;
-        }
+        //if (x == 0 || y == 0) {
+        //    continue;
+        //}
 
         // Add velocity to left side of the screen
-        if ((x > -1) && (x < 2) && (y < (h + 1)) && (y > -1)) {
+        if (x == 0) {
             uField[i] = 0.02;
         }
 
@@ -77,12 +77,14 @@ __global__ void d_advect_vel(
         float w21 = (    xFrac) * (1 - yFrac);
         float w22 = (    xFrac) * (    yFrac);
 
-        uNext[x + (y * (w + 1))] = (
-            w11 * uField[(unsigned int)(((newY    ) * (w + 1)) + (newX    ))] +
-            w12 * uField[(unsigned int)(((newY + 1) * (w + 1)) + (newX    ))] +
-            w21 * uField[(unsigned int)(((newY    ) * (w + 1)) + (newX + 1))] +
-            w22 * uField[(unsigned int)(((newY + 1) * (w + 1)) + (newX + 1))] 
-        );
+        if (x != w) {
+            uNext[x + (y * (w + 1))] = (
+                w11 * uField[(unsigned int)(((newY    ) * (w + 1)) + (newX    ))] +
+                w12 * uField[(unsigned int)(((newY + 1) * (w + 1)) + (newX    ))] +
+                w21 * uField[(unsigned int)(((newY    ) * (w + 1)) + (newX + 1))] +
+                w22 * uField[(unsigned int)(((newY + 1) * (w + 1)) + (newX + 1))] 
+            );
+        }
         //uNext[i] = sampleField(uField, newX, newY, w, h, 0.0, 0.0);
 
         // Sample vField
@@ -162,7 +164,7 @@ __global__ void d_render_texture(uint8_t *pixels, float *smoke, float *uField, f
 Simulation::Simulation(unsigned int width, unsigned int height, float dt) {
     m_width = width;
     m_height = height;
-    m_u =         new GPUField<float>(  (width + 1) *  height     , 0.1);
+    m_u =         new GPUField<float>(  (width + 1) *  height     , 0.05);
     m_v =         new GPUField<float>(   width      * (height + 1), 0.00);
     m_uNext =     new GPUField<float>(  (width + 1) *  height     );
     m_vNext =     new GPUField<float>(   width      * (height + 1));
