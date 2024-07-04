@@ -37,7 +37,7 @@ __global__ void d_advect_vel(
     float *vField,
     float *uNext,
     float *vNext,
-    uint8_t *obstacles,
+    float *obstacles,
     unsigned int w,
     unsigned int h,
     float deltaT,
@@ -103,7 +103,7 @@ __global__ void d_advect_smoke(
     float *smokeNext,
     float *uField,
     float *vField,
-    uint8_t *obstacles,
+    float *obstacles,
     unsigned int w,
     unsigned int h,
     float deltaT,
@@ -117,14 +117,19 @@ __global__ void d_advect_smoke(
         int y = i / w;
 
         // Add smoke to the screen
-        const int radius = 3;
-        if (x > ((w/2) - radius) && x < ((w/2) + radius) && y > ((h/2) - radius) && y < ((h/2) + radius)) {
+        if (x == 1 && (y % 10 < 2)) {
             smoke[i] = 1.0;
         }
+        //const int radius = 4;
+        //if (x > ((w/2) - radius) && x < ((w/2) + radius) && y > ((h/2) - radius) && y < ((h/2) + radius)) {
+        //    smoke[i] = 1.0;
+        //}
         
+        /*
         if (x == 1 || x == 0) {
             smoke[i] = 1.0;
         }
+        */
 
         // Advect smoke
         // Find the velocities at x, y
@@ -143,24 +148,70 @@ __global__ void d_advect_smoke(
     }
 }
 
-__global__ void project(float *u, float *v, float *obstacles, unsigned int w, unsigned int h) {
+__host__ __device__ void project_cell(float *u, float *v, float *obs, unsigned int w, unsigned int h, unsigned int x, unsigned int y, float overrelaxation) {
+    unsigned int obsIdxX0 = (x - 1) + ((y    ) * w);
+    unsigned int obsIdxX1 = (x + 1) + ((y    ) * w);
+    unsigned int obsIdxY0 = (x    ) + ((y - 1) * w);
+    unsigned int obsIdxY1 = (x    ) + ((y + 1) * w);
+
+    unsigned int uIdx0 =  x      + ( y      * (w + 1));
+    unsigned int uIdx1 = (x + 1) + ( y      * (w + 1));
+
+    unsigned int vIdx0 =  x      + ( y      *  w     );
+    unsigned int vIdx1 =  x      + ((y + 1) *  w     );
+
+    float obsCount = (
+        obs[obsIdxX0] +
+        obs[obsIdxX1] +
+        obs[obsIdxY0] +
+        obs[obsIdxY1]
+    );
+
+    float divergence = (
+        - u[uIdx0] + u[uIdx1]
+        - v[vIdx0] + v[vIdx1]
+    ) / obsCount;
+
+    float p = -divergence/obsCount;
+    p *= overrelaxation;
+
+    u[uIdx0] -= (obs[obsIdxX0] * p);
+    u[uIdx1] += (obs[obsIdxX1] * p);
+    v[vIdx0] -= (obs[obsIdxY0] * p);
+    v[vIdx1] += (obs[obsIdxY1] * p);
+}
+
+__global__ void d_project(float *u, float *v, float *obs, unsigned int w, unsigned int h, unsigned int parity) {
     int stride = gridDim.x * blockDim.x;
-    int max_index = w * h;
+    //printf("stride: %d\ti: %d\tblockDim.x: %d\tblockIdx.x: %d\tthreadIdx.x: %d\n", stride, (blockDim.x * blockIdx.x) + threadIdx.x, blockDim.x, blockIdx.x, threadIdx.x);
+    int max_index = (w-2) * (h-2);
+    float overrelaxation = 1.9;
 
     for (int i = (blockDim.x * blockIdx.x) + threadIdx.x; i < max_index; i+=stride) {
-        int x = i % w;
-        int y = i / w;
+        //printf("d_project i: %02d\n", i);
+        int x = (i % (w-2)) + 1;
+        int y = (i / (w-2)) + 1;
 
-        if (x == 0 || x == w-1 || y == 0 || y == h-1) {
-            p[i] = 0;
-            div[i] = 0;
-        } else {
-            div[i] = -0.5 * (
-                u[(x + 1) + (y * (w + 1))] - u[(x - 1) + (y * (w + 1))] +
-                v[(x) + ((y + 1) * w)] - v[(x) + ((y - 1) * w)]
-            ) / w;
-            p[i] = 0;
+        if (x % 2 == parity && y % 2 == parity) {
+            continue;
         }
+        project_cell(u, v, obs, w, h, x, y, overrelaxation);
+    }
+}
+
+void h_project(float *u, float *v, float *obs, unsigned int w, unsigned int h, unsigned int parity) {
+    int max_index = (w-2) * (h-2);
+    float overrelaxation = 1.9;
+
+    for (int i=0; i<max_index; i++) {
+        //printf("h_project i: %02d\n", i);
+        int x = (i % (w-2)) + 1;
+        int y = (i / (w-2)) + 1;
+    
+        if (x % 2 == parity && y % 2 == parity) {
+            continue;
+        }
+        project_cell(u, v, obs, w, h, x, y, overrelaxation);
     }
 }
 
@@ -184,14 +235,24 @@ __global__ void d_render_texture(uint8_t *pixels, float *smoke, float *uField, f
 Simulation::Simulation(unsigned int width, unsigned int height, float dt) {
     m_width = width;
     m_height = height;
-    m_u =         new GPUField<float>(  (width + 1) *  height     , 0.00001);
-    m_v =         new GPUField<float>(   width      * (height + 1), 0.0001);
+    m_u =         new GPUField<float>(  (width + 1) *  height     , 0.0);
+    m_v =         new GPUField<float>(   width      * (height + 1), 0.0);
     m_uNext =     new GPUField<float>(  (width + 1) *  height     );
     m_vNext =     new GPUField<float>(   width      * (height + 1));
     m_smoke =     new GPUField<float>(   width      *  height     );
     m_smokeNext = new GPUField<float>(   width      *  height     );
-    m_obstacles = new GPUField<uint8_t>( width      *  height     );
+    m_obstacles = new GPUField<float>(   width      *  height     , 1.0);
     m_pixels =    new GPUField<uint8_t>(4 * width   * height);
+
+    // Add obstacles
+    for (int i=0; i<width; i++) {
+        for (int j=0; j<height; j++) {
+            if (i == 0 || j == 0 || j == height - 1) {
+                m_obstacles->m_hostData[i + j * width] = 0.0;
+            }  
+        }
+    }
+
 }
 
 Simulation::~Simulation() {
@@ -233,25 +294,81 @@ void Simulation::step() {
 
     //m_u->m_hostData[0] = 0.11;
     //m_u->m_hostData[1] = 0.22;
-    this->to_device();   
     //printf("u: %f\n", m_u->m_hostData[1]);
 
-    d_advect_smoke<<<1000, 256>>>(
-        m_smoke->m_deviceData,
-        m_smokeNext->m_deviceData,
-        m_u->m_deviceData,
-        m_v->m_deviceData,
-        m_obstacles->m_deviceData,
-        m_width,
-        m_height,
-        0.0001,
-        0.0001);
+    // Add velocity to left side of the screen
+    for (int y=0; y<m_height; y++) {
+        m_u->m_hostData[(y * (m_width + 1)) + 1] = 1.5;
+        //m_v->m_hostData[(i * m_width) + 10] = 0.01;
+    }
+
+    this->to_device();   
+
+    int iterations = 100;
+    for (int i=0; i<iterations; i++) {
+        d_project<<<1, 256>>>(
+            m_u->m_deviceData,
+            m_v->m_deviceData,
+            m_obstacles->m_deviceData,
+            m_width,
+            m_height,
+            0
+        );
+        d_project<<<1, 256>>>(
+            m_u->m_deviceData,
+            m_v->m_deviceData,
+            m_obstacles->m_deviceData,
+            m_width,
+            m_height,
+            1
+        );
+        //h_project(
+        //    m_u->m_hostData,
+        //    m_v->m_hostData,
+        //    m_obstacles->m_hostData,
+        //    m_width,
+        //    m_height,
+        //    0
+        //);
+
+        //h_project(
+        //    m_u->m_hostData,
+        //    m_v->m_hostData,
+        //    m_obstacles->m_hostData,
+        //    m_width,
+        //    m_height,
+        //    1
+        //);
+        
+        /*
+        GPUField<float> *temp;
+        temp = m_u;
+        m_u = m_uNext;
+        m_uNext = temp;
+
+        temp = m_v;
+        m_v = m_vNext;
+        m_vNext = temp;
+        */
+    }
+    //this->to_device();
 
     d_advect_vel<<<1000, 256>>>(
         m_u->m_deviceData,
         m_v->m_deviceData,
         m_uNext->m_deviceData,
         m_vNext->m_deviceData,
+        m_obstacles->m_deviceData,
+        m_width,
+        m_height,
+        0.0001,
+        0.0001);
+
+    d_advect_smoke<<<1000, 256>>>(
+        m_smoke->m_deviceData,
+        m_smokeNext->m_deviceData,
+        m_u->m_deviceData,
+        m_v->m_deviceData,
         m_obstacles->m_deviceData,
         m_width,
         m_height,

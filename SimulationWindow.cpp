@@ -2,7 +2,7 @@
 #include <algorithm>
 #include "SimulationWindow.h"
 
-#define ZOOM 10
+#define ZOOM 3
 
 SimulationWindow::SimulationWindow(const char* title, int width, int height, bool stepMode) {
     m_width = width;

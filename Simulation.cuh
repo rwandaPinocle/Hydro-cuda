@@ -19,7 +19,7 @@ class Simulation {
         unsigned int m_width, m_height;
         GPUField<float> *m_u, *m_v, *m_uNext, *m_vNext;
         GPUField<float> *m_smoke, *m_smokeNext;
-        GPUField<uint8_t> *m_obstacles;
+        GPUField<float> *m_obstacles;
         GPUField<uint8_t> *m_pixels;
 };
 
