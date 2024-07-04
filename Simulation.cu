@@ -1,6 +1,7 @@
 #include "Simulation.cuh"
 #include <iostream>
 #include <iomanip>
+#include <cmath>
 
 
 __device__ float sampleField(float *f, float x, float y, unsigned int w, unsigned int h, float xOffset, float yOffset) {
@@ -55,9 +56,9 @@ __global__ void d_advect_vel(
         //}
 
         // Add velocity to left side of the screen
-        if (x == 0) {
-            uField[i] = 0.001;
-        }
+        //if (x == 0) {
+        //    uField[i] = 0.001;
+        //}
 
         float u, v, newX, newY;
 
@@ -119,6 +120,10 @@ __global__ void d_advect_smoke(
         // Add smoke to the screen
         if (x == 1 && (y % 10 < 2)) {
             smoke[i] = 1.0;
+            smoke[i+1] = 1.0;
+            smoke[i+2] = 1.0;
+            smoke[i+3] = 1.0;
+            smoke[i+4] = 1.0;
         }
         //const int radius = 4;
         //if (x > ((w/2) - radius) && x < ((w/2) + radius) && y > ((h/2) - radius) && y < ((h/2) + radius)) {
@@ -160,19 +165,22 @@ __host__ __device__ void project_cell(float *u, float *v, float *obs, unsigned i
     unsigned int vIdx0 =  x      + ( y      *  w     );
     unsigned int vIdx1 =  x      + ((y + 1) *  w     );
 
-    float obsCount = (
+    float obsCount = 4.0f - (
         obs[obsIdxX0] +
         obs[obsIdxX1] +
         obs[obsIdxY0] +
         obs[obsIdxY1]
     );
+    if (obsCount == 4.0) {
+        return;
+    }
 
     float divergence = (
         - u[uIdx0] + u[uIdx1]
         - v[vIdx0] + v[vIdx1]
-    ) / obsCount;
+    ) / (4 - obsCount);
 
-    float p = -divergence/obsCount;
+    float p = -divergence/(4 - obsCount);
     p *= overrelaxation;
 
     u[uIdx0] -= (obs[obsIdxX0] * p);
@@ -215,20 +223,31 @@ void h_project(float *u, float *v, float *obs, unsigned int w, unsigned int h, u
     }
 }
 
-__global__ void d_render_texture(uint8_t *pixels, float *smoke, float *uField, float *vField, unsigned int width, unsigned int height) {
+__global__ void d_render_texture(
+    uint8_t *pixels,
+    float *smoke,
+    float *uField,
+    float *vField,
+    float *obs,
+    unsigned int width,
+    unsigned int height
+) {
     int stride = gridDim.x * blockDim.x;
     int max_index = width * height;
 
     for (int i = (blockDim.x * blockIdx.x) + threadIdx.x; i < max_index; i+=stride) {
         // Clamp the smoke value to 0-255
         //int pixel_value = static_cast<int>(uField[i * width/(width + 1)] * 25500 * 2);
-        int pixel_value = static_cast<int>(smoke[i] * 255);
-        if (pixel_value > 255) {
-            pixel_value = 255;
-        } else if (pixel_value < 0) {
-            pixel_value = 0;
+        int green = static_cast<int>(smoke[i] * 255);
+        if (green > 255) {
+            green = 255;
+        } else if (green < 0) {
+            green = 0;
         }
-        pixels[(4*i) + 1] = pixel_value;
+        pixels[(4*i) + 1] = green;
+
+        int red = static_cast<int>((1.0 - obs[i]) * 255);
+        pixels[(4*i) + 2] = red;
     }
 }
 
@@ -245,11 +264,15 @@ Simulation::Simulation(unsigned int width, unsigned int height, float dt) {
     m_pixels =    new GPUField<uint8_t>(4 * width   * height);
 
     // Add obstacles
+    float radius = 20;
     for (int i=0; i<width; i++) {
         for (int j=0; j<height; j++) {
             if (i == 0 || j == 0 || j == height - 1) {
                 m_obstacles->m_hostData[i + j * width] = 0.0;
             }  
+            if (pow((float)i-((float)width/5), 2) + pow((float)j-((float)height/2), 2) < pow(radius, 2)) {
+                m_obstacles->m_hostData[i + j * width] = 0.0;
+            }
         }
     }
 
@@ -298,7 +321,7 @@ void Simulation::step() {
 
     // Add velocity to left side of the screen
     for (int y=0; y<m_height; y++) {
-        m_u->m_hostData[(y * (m_width + 1)) + 1] = 1.5;
+        m_u->m_hostData[(y * (m_width + 1)) + 1] = 15.0;
         //m_v->m_hostData[(i * m_width) + 10] = 0.01;
     }
 
@@ -362,7 +385,7 @@ void Simulation::step() {
         m_width,
         m_height,
         0.0001,
-        0.0001);
+        0.001);
 
     d_advect_smoke<<<1000, 256>>>(
         m_smoke->m_deviceData,
@@ -373,7 +396,7 @@ void Simulation::step() {
         m_width,
         m_height,
         0.0001,
-        0.0001);
+        0.001);
 
     this->from_device();
 
@@ -398,6 +421,14 @@ void Simulation::step() {
 }
 
 void Simulation::render_texture(uint8_t *pixels) {
-    d_render_texture<<<1000, 256>>>(m_pixels->m_deviceData, m_smoke->m_deviceData, m_u->m_deviceData, m_v->m_deviceData, m_width, m_height);
+    d_render_texture<<<1000, 256>>>(
+        m_pixels->m_deviceData,
+        m_smoke->m_deviceData,
+        m_u->m_deviceData,
+        m_v->m_deviceData,
+        m_obstacles->m_deviceData,
+        m_width,
+        m_height
+    );
     m_pixels->from_device(pixels);
 }
