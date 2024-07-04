@@ -8,7 +8,7 @@ SimulationWindow::SimulationWindow(const char* title, int width, int height, boo
     m_width = width;
     m_height = height;
     m_bRunning = false;
-    m_sim = new Simulation(width, height, 0.001);
+    m_sim = new Simulation(width, height, 0.0001);
     m_stepMode = stepMode;
     m_numSteps = 0;
 }
@@ -42,8 +42,6 @@ int SimulationWindow::init() {
 
 void SimulationWindow::render() {
     SDL_SetRenderDrawColor(m_pRenderer, 0, 0, 0, 255);
-
-
     
     SDL_Texture *texture;
     m_pitch = m_width * m_height * 4;
@@ -68,7 +66,6 @@ void SimulationWindow::render() {
     SDL_RenderPresent(m_pRenderer);
 
     SDL_DestroyTexture(texture);
-
 }
 
 void SimulationWindow::update() {
