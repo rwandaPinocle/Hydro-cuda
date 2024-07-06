@@ -3,6 +3,12 @@
 #include <iomanip>
 #include <cmath>
 
+void swapFields(GPUField<float> **a, GPUField<float> **b) {
+    GPUField<float> *temp = *a;
+    *a = *b;
+    *b = temp;
+}
+
 __device__ float sampleField(
     float *f,
     float x,
@@ -21,7 +27,7 @@ __device__ float sampleField(
     float xFrac = newX - (long)newX;
     float yFrac = newY - (long)newY;
     
-    // Sample the smoke with bilinear interpolation
+    // Sample the field at the new location with bilinear interpolation
     float w11 = (1 - xFrac) * (1 - yFrac);
     float w12 = (1 - xFrac) * (    yFrac);
     float w21 = (    xFrac) * (1 - yFrac);
@@ -186,8 +192,7 @@ __global__ void d_project(
     float *v,
     float *obs,
     unsigned int w,
-    unsigned int h,
-    unsigned int parity
+    unsigned int h
 ) {
     int stride = gridDim.x * blockDim.x;
     int max_index = (w-2) * (h-2);
@@ -197,14 +202,16 @@ __global__ void d_project(
         int x = (i % (w-2)) + 1;
         int y = (i / (w-2)) + 1;
 
-        if (x % 2 == parity && y % 2 == parity) {
-            continue;
-        }
         project_cell(u, v, obs, w, h, x, y, overrelaxation);
     }
 }
 
-void h_project(float *u, float *v, float *obs, unsigned int w, unsigned int h, unsigned int parity) {
+void h_project(float *u,
+    float *v,
+    float *obs,
+    unsigned int w,
+    unsigned int h
+) {
     int max_index = (w-2) * (h-2);
     float overrelaxation = 1.9;
 
@@ -212,9 +219,6 @@ void h_project(float *u, float *v, float *obs, unsigned int w, unsigned int h, u
         int x = (i % (w-2)) + 1;
         int y = (i / (w-2)) + 1;
     
-        if (x % 2 == parity && y % 2 == parity) {
-            continue;
-        }
         project_cell(u, v, obs, w, h, x, y, overrelaxation);
     }
 }
@@ -291,8 +295,7 @@ void Simulation::to_device(){
     m_smokeNext->to_device();
     m_obstacles->to_device();
 
-    // d_pixels only goes from device to host
-    //d_pixels.to_device();
+    // d_pixels is excluded because it only goes from device to host
 }
 
 void Simulation::from_device(){
@@ -305,11 +308,6 @@ void Simulation::from_device(){
     m_obstacles->from_device();
 }
 
-void swapFields(GPUField<float> **a, GPUField<float> **b) {
-    GPUField<float> *temp = *a;
-    *a = *b;
-    *b = temp;
-}
 
 void Simulation::step() {
     // Add velocity to left side of the screen
@@ -322,26 +320,22 @@ void Simulation::step() {
     const bool useGPU = true;
     int iterations = 100;
     for (int i=0; i<iterations; i++) {
-        for (int parity=0; parity<2; parity++) {
-            if (useGPU) {
-                d_project<<<1, 256>>>(
-                    m_u->m_deviceData,
-                    m_v->m_deviceData,
-                    m_obstacles->m_deviceData,
-                    m_width,
-                    m_height,
-                    parity
-                );
-            } else {
-                h_project(
-                    m_u->m_hostData,
-                    m_v->m_hostData,
-                    m_obstacles->m_hostData,
-                    m_width,
-                    m_height,
-                    parity
-                );
-            }
+        if (useGPU) {
+            d_project<<<1, 256>>>(
+                m_u->m_deviceData,
+                m_v->m_deviceData,
+                m_obstacles->m_deviceData,
+                m_width,
+                m_height
+            );
+        } else {
+            h_project(
+                m_u->m_hostData,
+                m_v->m_hostData,
+                m_obstacles->m_hostData,
+                m_width,
+                m_height
+            );
         }
     }
     if (!useGPU) {

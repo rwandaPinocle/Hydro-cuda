@@ -5,15 +5,9 @@ template<typename T>
 GPUField<T>::GPUField(unsigned int size, T initialValue) {
     m_size = size;
     m_hostData = new T[size];
-    // zero out m_hostData
     for (int i=0; i<size; i++) {
         m_hostData[i] = initialValue;
     }
-    /*
-    for (int i=0; i<size; i++) {
-        m_hostData[i] = i % 255;
-    }
-    */
     cudaMalloc(&m_deviceData, size * sizeof(T));
 }
 

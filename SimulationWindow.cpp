@@ -2,13 +2,13 @@
 #include <algorithm>
 #include "SimulationWindow.h"
 
-#define ZOOM 6
+#define ZOOM 5
 
 SimulationWindow::SimulationWindow(const char* title, int width, int height, bool stepMode) {
     m_width = width;
     m_height = height;
     m_bRunning = false;
-    m_sim = new Simulation(width, height, 0.0001);
+    m_sim = new Simulation(width, height, 0.00001);
     m_stepMode = stepMode;
     m_numSteps = 0;
 }

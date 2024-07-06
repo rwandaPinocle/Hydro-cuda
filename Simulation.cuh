@@ -17,6 +17,8 @@ class Simulation {
 
     private:
         unsigned int m_width, m_height;
+
+        // u and v are the horizontal and vertical components of the velocity field
         GPUField<float> *m_u, *m_v, *m_uNext, *m_vNext;
         GPUField<float> *m_smoke, *m_smokeNext;
         GPUField<float> *m_obstacles;
