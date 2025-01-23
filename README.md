@@ -4,5 +4,5 @@ Hydro-cuda is a GPU accelerated Eulerian fluid simulation based on the technique
 
 All GPU code is handwritten CUDA, no premade solver libraries were used.
 
-https://github.com/user-attachments/assets/675344b0-6c60-40f6-b7f6-1bd6e1cc93c3
+https://github.com/user-attachments/assets/dab882d7-a00e-47b4-82e2-04e27845b3a6
 
